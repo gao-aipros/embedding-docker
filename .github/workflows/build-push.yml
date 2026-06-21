@@ -133,5 +133,6 @@ jobs:
       - name: Inspect manifest
         if: github.event_name != 'pull_request' || github.event.inputs.push == 'true'
         run: |
-          docker buildx imagetools inspect \
-            ${{ env.REGISTRY }}/${{ github.repository }}:${{ env.MODEL }}-${{ github.sha }}
+          TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
+          echo "Inspecting: ${TAG}"
+          docker buildx imagetools inspect "${TAG}"
