@@ -1,0 +1,130 @@
+name: Build and Push
+
+# ==============================================================================
+# Multi-arch Docker build & push for TEI + BAAI/bge-large-en-v1.5.
+#
+# TEI publishes separate tags per architecture (no unified manifest), so we:
+#   1. Build amd64 & arm64 independently, each with its own TEI base tag
+#   2. Push arch-specific images to GHCR
+#   3. Merge them into a single multi-arch manifest
+#
+# The Dockerfile pins Stage 1 (model download) to $BUILDPLATFORM, so the
+# ~1.3 GB model download always runs natively on the GitHub amd64 runner —
+# even during the arm64 build. Only the lightweight final COPY runs under
+# QEMU, keeping arm64 builds fast.
+# ==============================================================================
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      push:
+        description: 'Push to registry'
+        type: boolean
+        default: false
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # --- Metadata ---
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}
+          tags: |
+            type=sha,prefix=,format=short
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=tag
+            type=ref,event=branch
+
+      # --- Build & push amd64 ---
+      - name: Build and push (linux/amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          build-args: |
+            BASE_TAG=cpu-1.9
+          tags: ${{ env.REGISTRY }}/${{ github.repository }}:${{ github.sha }}-amd64
+          push: ${{ github.event_name != 'pull_request' || github.event.inputs.push == 'true' }}
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,mode=max,scope=amd64
+
+      # --- Build & push arm64 ---
+      - name: Build and push (linux/arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          build-args: |
+            BASE_TAG=cpu-arm64-latest
+          tags: ${{ env.REGISTRY }}/${{ github.repository }}:${{ github.sha }}-arm64
+          push: ${{ github.event_name != 'pull_request' || github.event.inputs.push == 'true' }}
+          cache-from: type=gha,scope=arm64
+          cache-to: type=gha,mode=max,scope=arm64
+
+      # --- Merge into multi-arch manifest ---
+      - name: Create multi-arch manifest
+        if: github.event_name != 'pull_request' || github.event.inputs.push == 'true'
+        run: |
+          set -euo pipefail
+
+          REPO="${{ env.REGISTRY }}/${{ github.repository }}"
+          SHA="${{ github.sha }}"
+
+          # Build --tag arguments from metadata output (newline-separated)
+          TAG_ARGS=""
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS --tag $tag"
+          done <<< "${{ steps.meta.outputs.tags }}"
+
+          echo "Creating multi-arch manifest..."
+          echo "  Source: ${REPO}:${SHA}-amd64"
+          echo "  Source: ${REPO}:${SHA}-arm64"
+          echo "  Tags: ${{ steps.meta.outputs.tags }}"
+
+          docker buildx imagetools create \
+            ${TAG_ARGS} \
+            "${REPO}:${SHA}-amd64" \
+            "${REPO}:${SHA}-arm64"
+
+          echo "Done. Inspect with:"
+          echo "  docker buildx imagetools inspect ${REPO}:latest"
+
+      # --- Provenance ---
+      - name: Inspect manifest
+        if: github.event_name != 'pull_request' || github.event.inputs.push == 'true'
+        run: |
+          docker buildx imagetools inspect \
+            ${{ env.REGISTRY }}/${{ github.repository }}:${{ github.sha }}

@@ -1,0 +1,28 @@
+# docker-compose.yml — TEI with BAAI/bge-large-en-v1.5 (CPU)
+#
+# Usage:
+#   docker compose up -d
+#   curl http://localhost:8080/health
+#   curl -X POST http://localhost:8080/embed \
+#     -H 'Content-Type: application/json' \
+#     -d '{"inputs": "Hello, world!"}'
+
+services:
+  embedding:
+    build:
+      context: .
+      args:
+        # Switch to cpu-arm64-latest for Raspberry Pi / ARM64 hosts.
+        # BASE_TAG: cpu-arm64-latest
+        BASE_TAG: cpu-1.9
+    image: embedding-server:latest
+    container_name: embedding-server
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+    # Uncomment to keep models cached across rebuilds:
+    # volumes:
+    #   - embedding-data:/data
+
+# volumes:
+#   embedding-data:
