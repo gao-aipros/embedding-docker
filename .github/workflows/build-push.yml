@@ -29,6 +29,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
+  MODEL: bge-large-en-v1.5
 
 jobs:
   build:
@@ -63,10 +64,14 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository }}
           tags: |
-            type=sha,prefix=,format=short
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=ref,event=tag
-            type=ref,event=branch
+            # Primary model tag: bge-large-en-v1.5 (rolling, on main)
+            type=raw,value=${{ env.MODEL }},enable=${{ github.ref == 'refs/heads/main' }}
+            # Pinned: bge-large-en-v1.5-<sha>
+            type=sha,prefix=${{ env.MODEL }}-,format=short
+            # Versioned: bge-large-en-v1.5-v1.0.0
+            type=ref,event=tag,prefix=${{ env.MODEL }}-
+            # Branch: bge-large-en-v1.5-<branch>
+            type=ref,event=branch,prefix=${{ env.MODEL }}-
 
       # --- Build & push amd64 ---
       - name: Build and push (linux/amd64)
@@ -119,12 +124,12 @@ jobs:
             "${REPO}:${SHA}-amd64" \
             "${REPO}:${SHA}-arm64"
 
-          echo "Done. Inspect with:"
-          echo "  docker buildx imagetools inspect ${REPO}:latest"
+          echo "Done. Pull with:"
+          echo "  docker pull ${REPO}:${{ env.MODEL }}"
 
       # --- Provenance ---
       - name: Inspect manifest
         if: github.event_name != 'pull_request' || github.event.inputs.push == 'true'
         run: |
           docker buildx imagetools inspect \
-            ${{ env.REGISTRY }}/${{ github.repository }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ github.repository }}:${{ env.MODEL }}-${{ github.sha }}
