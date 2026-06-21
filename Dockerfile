@@ -52,6 +52,11 @@ ENV PORT=80
 
 EXPOSE 80
 
+# Docker health check — pings TEI's /health endpoint.
+# start-period=60s gives the model time to load before the first check.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD curl -fs http://localhost:${PORT}/health || exit 1
+
 # TEI router entrypoint — loads the model directly from the local path.
 ENTRYPOINT ["text-embeddings-router"]
 CMD ["--model-id", "/data/bge-large-en-v1.5", "--port", "80"]
