@@ -64,7 +64,9 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository }}
           tags: |
-            # Primary model tag: bge-large-en-v1.5 (rolling, on main)
+            # Conventional latest (on main)
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            # Model-specific: bge-large-en-v1.5 (on main)
             type=raw,value=${{ env.MODEL }},enable=${{ github.ref == 'refs/heads/main' }}
             # Pinned: bge-large-en-v1.5-<sha>
             type=sha,prefix=${{ env.MODEL }}-,format=short
